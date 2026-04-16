@@ -4,14 +4,16 @@ from backend.schemas import FeatureEvent, RuleDecision
 
 
 def classify_with_rules(features: FeatureEvent) -> RuleDecision:
-    if features.failed_auth_count >= 5:
+    # ── Brute Force: many auth failures from same IP (any client_id) ──────────
+    if features.failed_auth_count >= 3:
         return RuleDecision(
             is_attack=True,
             predicted_attack_type="brute_force",
             severity="high",
-            reason="Too many authentication failures from the same source in the recent window.",
+            reason="Multiple authentication failures from the same source IP.",
         )
 
+    # ── Flood: high message or connection rate from one client ─────────────────
     if features.message_rate >= 25 or features.connect_rate >= 12:
         return RuleDecision(
             is_attack=True,
@@ -20,7 +22,8 @@ def classify_with_rules(features: FeatureEvent) -> RuleDecision:
             reason="Unusually high message/connect rate detected from one source.",
         )
 
-    if features.topic_count >= 8:
+    # ── Topic Scan: single client touching many different topics ───────────────
+    if features.topic_count >= 6:
         return RuleDecision(
             is_attack=True,
             predicted_attack_type="topic_scan",
@@ -28,6 +31,7 @@ def classify_with_rules(features: FeatureEvent) -> RuleDecision:
             reason="Single source is touching many different topics in a short window.",
         )
 
+    # ── Oversized Payload ──────────────────────────────────────────────────────
     if features.avg_payload_size >= 900:
         return RuleDecision(
             is_attack=True,

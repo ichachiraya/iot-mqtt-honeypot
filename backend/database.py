@@ -116,19 +116,38 @@ def insert_prediction(raw_event_id: int, prediction: PredictionResult) -> None:
         )
 
 
-def get_recent_source_window(src_ip: str, seconds: int = 60) -> list[sqlite3.Row]:
+def get_recent_source_window(src_ip: str, client_id: str, seconds: int = 60) -> list[sqlite3.Row]:
+    """History for one specific client — used for message_rate, topic_count, etc."""
     with get_connection() as conn:
         cursor = conn.execute(
             """
             SELECT *
             FROM raw_events
-            WHERE src_ip = ?
+            WHERE src_ip = ? AND client_id = ?
               AND datetime(timestamp) >= datetime('now', ?)
             ORDER BY timestamp DESC
             """,
-            (src_ip, f"-{seconds} seconds"),
+            (src_ip, client_id, f"-{seconds} seconds"),
         )
         return cursor.fetchall()
+
+
+def get_auth_fail_count_by_ip(src_ip: str, seconds: int = 60) -> int:
+    """Count auth_fail events from an IP across ALL client_ids.
+    Catches brute-force attackers who reconnect with different client IDs.
+    """
+    with get_connection() as conn:
+        result = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM raw_events
+            WHERE src_ip = ?
+              AND action = 'auth_fail'
+              AND datetime(timestamp) >= datetime('now', ?)
+            """,
+            (src_ip, f"-{seconds} seconds"),
+        ).fetchone()
+        return int(result["count"]) if result else 0
 
 
 def list_recent_events(limit: int = 50) -> list[sqlite3.Row]:
