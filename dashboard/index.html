@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MQTT Honeypot — Attack Monitor</title>
+    <meta name="description" content="Real-time MQTT honeypot attack monitoring dashboard powered by ML classification." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Animated background particles -->
+    <div class="bg-grid"></div>
+
+    <div class="container">
+      <!-- Header -->
+      <header class="page-header">
+        <div class="header-left">
+          <div class="logo-badge">
+            <span class="logo-icon">⬡</span>
+            <span class="logo-text">MQTT<span class="logo-accent">SEC</span></span>
+          </div>
+          <div>
+            <h1>Attack Monitoring Dashboard</h1>
+            <p class="subtitle">Real-time ML threat detection · Auto-refresh every 3s</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="status-pill" id="statusPill">
+            <span class="pulse-dot" id="pulseDot"></span>
+            <span id="statusText">Connecting…</span>
+          </div>
+          <div class="last-update" id="lastUpdate">—</div>
+        </div>
+      </header>
+
+      <!-- Stats Cards -->
+      <section class="stats-grid">
+        <article class="card stat-card" id="card-events">
+          <div class="stat-icon">📡</div>
+          <div class="stat-body">
+            <span class="stat-label">Total Events</span>
+            <strong class="stat-value" id="totalEvents">0</strong>
+          </div>
+          <div class="stat-trend" id="trendEvents"></div>
+        </article>
+
+        <article class="card stat-card danger-card" id="card-alerts">
+          <div class="stat-icon">🚨</div>
+          <div class="stat-body">
+            <span class="stat-label">Total Alerts</span>
+            <strong class="stat-value" id="totalAlerts">0</strong>
+          </div>
+          <div class="stat-trend" id="trendAlerts"></div>
+        </article>
+
+        <article class="card stat-card warn-card" id="card-ratio">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-body">
+            <span class="stat-label">Attack Ratio (Recent)</span>
+            <strong class="stat-value" id="attackRatio">0%</strong>
+          </div>
+          <div class="ratio-bar-wrap">
+            <div class="ratio-bar-fill" id="ratioBarFill" style="width:0%"></div>
+          </div>
+        </article>
+      </section>
+
+      <!-- Charts + Alerts -->
+      <section class="content-grid">
+        <article class="card chart-card">
+          <div class="card-header">
+            <h2>Attack Type Breakdown</h2>
+            <span class="card-badge" id="chartTotal">0 events</span>
+          </div>
+          <div id="attackChart" class="chart"></div>
+        </article>
+
+        <article class="card alerts-card">
+          <div class="card-header">
+            <h2>Recent Alerts</h2>
+            <span class="card-badge danger-badge" id="alertsBadge">0</span>
+          </div>
+          <div id="alertsList" class="alerts-list"></div>
+        </article>
+      </section>
+
+      <!-- Events Table -->
+      <section class="card table-card">
+        <div class="card-header">
+          <h2>Live Event Feed</h2>
+          <span class="card-badge" id="eventsBadge">0 events</span>
+        </div>
+        <div class="table-wrap">
+          <table id="eventsTable">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Source IP</th>
+                <th>Action</th>
+                <th>Topic</th>
+                <th>Msg Rate</th>
+                <th>Topics</th>
+                <th>Auth Fails</th>
+                <th>ML Prediction</th>
+                <th>Severity</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="eventsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="page-footer">
+        MQTT Honeypot System · ML Model: RandomForest · Backend: FastAPI
+      </footer>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
