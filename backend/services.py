@@ -106,7 +106,7 @@ def process_raw_event(payload: RawEventIn) -> IngestResponse:
     """
     raw_event   = normalize_raw_event(payload)
     features    = extract_features(raw_event)
-    rule_result = classify_with_rules(features, topic=raw_event.topic)
+    rule_result = classify_with_rules(features, topic=raw_event.topic, action=raw_event.action)
 
     confidence = 0.9 if rule_result.is_attack else 0.7
     prediction = PredictionResult(

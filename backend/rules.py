@@ -22,6 +22,7 @@ def _is_whitelisted_topic(topic: str) -> bool:
 def classify_with_rules(
     features: FeatureEvent,
     topic: str = "/",
+    action: str = "publish",
 ) -> RuleDecision:
     """
     Rule-based classifier.
@@ -32,12 +33,14 @@ def classify_with_rules(
         Aggregated traffic features for the source.
     topic : str
         The topic of the *current* event — used for whitelist checks.
+    action : str
+        The action of the *current* event ("connect", "publish", "auth_fail", etc.).
     """
     whitelisted = _is_whitelisted_topic(topic)
 
     # ── Brute Force: many auth failures from same IP (any client_id) ──────────
     # (never whitelisted — auth failures are always suspicious)
-    if features.failed_auth_count >= 3:
+    if features.failed_auth_count >= 3 and action in ("connect", "auth_fail"):
         return RuleDecision(
             is_attack=True,
             predicted_attack_type="brute_force",

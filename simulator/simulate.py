@@ -40,8 +40,9 @@ def run_normal(count: int, delay: float) -> None:
 
 
 def run_flood(count: int, delay: float) -> None:
-    # Fixed client_id so all events accumulate in the same history window
-    client = mqtt.Client(client_id="flood_attacker")
+    # Use a random suffix so consecutive runs don't accumulate in the same history window
+    client_id_suffix = random.randint(1000, 9999)
+    client = mqtt.Client(client_id=f"flood_attacker_{client_id_suffix}")
     client.username_pw_set("guest", "guest")
     client.connect(BROKER_HOST, BROKER_PORT)
     client.loop_start()
@@ -83,7 +84,8 @@ def run_brute_force(count: int, delay: float) -> None:
 
 
 def run_topic_scan(count: int, delay: float) -> None:
-    client = mqtt.Client(client_id="scanner_1")
+    client_id_suffix = random.randint(1000, 9999)
+    client = mqtt.Client(client_id=f"scanner_{client_id_suffix}")
     client.username_pw_set("guest", "guest")
     client.connect(BROKER_HOST, BROKER_PORT)
     client.loop_start()
@@ -107,7 +109,8 @@ def run_topic_scan(count: int, delay: float) -> None:
 
 
 def run_oversized_payload(count: int, delay: float) -> None:
-    client = mqtt.Client(client_id="payload_abuse_1")
+    client_id_suffix = random.randint(1000, 9999)
+    client = mqtt.Client(client_id=f"payload_abuse_{client_id_suffix}")
     client.username_pw_set("uploader", "pass")
     client.connect(BROKER_HOST, BROKER_PORT)
     client.loop_start()
