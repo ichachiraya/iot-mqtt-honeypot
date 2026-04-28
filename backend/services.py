@@ -116,7 +116,6 @@ def process_raw_event(payload: RawEventIn) -> IngestResponse:
         severity=rule_result.severity,
         reason=rule_result.reason,
         rule_label=rule_result.predicted_attack_type,
-        ml_label=None,
     )
 
     raw_event_id = insert_raw_event(raw_event, features)
@@ -132,6 +131,7 @@ def process_raw_event(payload: RawEventIn) -> IngestResponse:
                 "client_id": raw_event.client_id,
                 "action": raw_event.action,
                 "topic": raw_event.topic,
+                "payload": raw_event.payload,
                 "payload_size": raw_event.payload_size,
                 "connect_rate": features.connect_rate,
                 "message_rate": features.message_rate,
@@ -144,7 +144,6 @@ def process_raw_event(payload: RawEventIn) -> IngestResponse:
                 "severity": prediction.severity,
                 "reason": prediction.reason,
                 "rule_label": prediction.rule_label,
-                "ml_label": prediction.ml_label,
             },
             "stats": get_stats(),
         })

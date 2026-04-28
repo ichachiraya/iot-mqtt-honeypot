@@ -56,7 +56,6 @@ def init_db() -> None:
                 severity TEXT NOT NULL,
                 reason TEXT NOT NULL,
                 rule_label TEXT NOT NULL,
-                ml_label TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(raw_event_id) REFERENCES raw_events(id)
             )
@@ -100,8 +99,8 @@ def insert_prediction(raw_event_id: int, prediction: PredictionResult) -> None:
             """
             INSERT INTO predictions (
                 raw_event_id, is_attack, predicted_attack_type, confidence,
-                severity, reason, rule_label, ml_label
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                severity, reason, rule_label
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 raw_event_id,
@@ -111,7 +110,6 @@ def insert_prediction(raw_event_id: int, prediction: PredictionResult) -> None:
                 prediction.severity,
                 prediction.reason,
                 prediction.rule_label,
-                prediction.ml_label,
             ),
         )
 
@@ -161,6 +159,7 @@ def list_recent_events(limit: int = 50) -> list[sqlite3.Row]:
                 r.client_id,
                 r.action,
                 r.topic,
+                r.payload,
                 r.payload_size,
                 r.connect_rate,
                 r.message_rate,
@@ -172,8 +171,7 @@ def list_recent_events(limit: int = 50) -> list[sqlite3.Row]:
                 p.confidence,
                 p.severity,
                 p.reason,
-                p.rule_label,
-                p.ml_label
+                p.rule_label
             FROM raw_events r
             LEFT JOIN predictions p ON p.raw_event_id = r.id
             ORDER BY r.timestamp DESC

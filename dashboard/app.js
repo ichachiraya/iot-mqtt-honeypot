@@ -22,14 +22,16 @@ const eventsBadgeEl    = document.getElementById("eventsBadge");
 const liveIndicatorEl  = document.getElementById("liveIndicator");
 
 // ── Event buffer ──────────────────────────────────────────────
-// We keep a rolling buffer of recent events received via SSE so the
-// table can be rebuilt instantly without waiting for the next poll.
 const MAX_EVENTS = 60;
 let eventBuffer = [];
 let alertBuffer = [];
 let latestStats = null;
 let sseConnected = false;
 let pollingTimer = null;
+
+// New globals for UI state
+window.allEventsMap = new Map();
+window.devicesMap = new Map();
 
 // ── Colour map per attack type ────────────────────────────────
 const ATTACK_COLORS = {
@@ -77,6 +79,231 @@ function setLiveStatus(connected) {
   }
 }
 
+// ── Payload formatting & Syntax Highlighting ──────────────────
+function syntaxHighlight(json) {
+  if (typeof json != 'string') {
+    json = JSON.stringify(json, undefined, 2);
+  }
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+    let cls = 'json-number';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'json-key';
+      } else {
+        cls = 'json-string';
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'json-boolean';
+    } else if (/null/.test(match)) {
+      cls = 'json-null';
+    }
+    return '<span class="' + cls + '">' + match + '</span>';
+  });
+}
+
+function formatPayload(payloadStr) {
+  if (!payloadStr) return { html: "<i>(empty payload)</i>", isJson: false };
+  try {
+    const obj = JSON.parse(payloadStr);
+    const pretty = JSON.stringify(obj, null, 2);
+    return { html: syntaxHighlight(pretty), isJson: true };
+  } catch (e) {
+    const escaped = payloadStr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return { html: escaped, isJson: false };
+  }
+}
+
+function getPayloadPreview(payload) {
+  if (!payload) return "-";
+  const str = String(payload).replace(/\s+/g, ' ');
+  if (str.length > 40) return str.substring(0, 37) + "...";
+  return str;
+}
+
+// ── Modal Logic ───────────────────────────────────────────────
+const payloadModal = document.getElementById("payloadModal");
+const modalCloseBtn = document.getElementById("modalCloseBtn");
+const modalMeta = document.getElementById("modalMeta");
+const modalPayloadContent = document.getElementById("modalPayloadContent");
+
+if (eventsTableBody && payloadModal) {
+  eventsTableBody.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr");
+    if (!tr) return;
+    const evtId = tr.getAttribute("data-id");
+    if (!evtId) return;
+    
+    const ev = window.allEventsMap.get(evtId);
+    if (!ev) return;
+    
+    const sevClass = badgeClass(ev.severity);
+    const predType = ev.predicted_attack_type ?? "normal";
+    modalMeta.innerHTML = `
+      <span class="label">Client ID</span><span class="val">${ev.client_id || 'unknown'}</span>
+      <span class="label">Topic</span><span class="val">${ev.topic || '/'}</span>
+      <span class="label">Timestamp</span><span class="val">${fmtDatetime(ev.timestamp)}</span>
+      <span class="label">Classification</span><span class="val"><span class="badge ${sevClass}">${predType}</span></span>
+      <span class="label">Severity</span><span class="val"><span class="badge ${sevClass}">${ev.severity ?? "low"}</span></span>
+    `;
+    
+    const { html } = formatPayload(ev.payload);
+    modalPayloadContent.innerHTML = html;
+    
+    payloadModal.classList.add("active");
+  });
+
+  modalCloseBtn.addEventListener("click", () => payloadModal.classList.remove("active"));
+  payloadModal.addEventListener("click", (e) => {
+    if (e.target === payloadModal) payloadModal.classList.remove("active");
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") payloadModal.classList.remove("active");
+  });
+}
+
+// ── Device Panel Logic ────────────────────────────────────────
+function updateDevices(events) {
+  events.forEach(ev => {
+    if (!ev.client_id) return;
+    
+    // If this client is flagged as an attacker, remove it from the Device Panel entirely!
+    if (ev.is_attack) {
+      window.devicesMap.delete(ev.client_id);
+      return; 
+    }
+    
+    const existing = window.devicesMap.get(ev.client_id) || { client_id: ev.client_id, timestamp: ev.timestamp, topic: ev.topic };
+    
+    // Always update timestamp to the latest
+    const evTime = new Date(ev.timestamp).getTime();
+    const existingTime = new Date(existing.timestamp).getTime();
+    if (evTime >= existingTime) {
+      existing.timestamp = ev.timestamp;
+      existing.topic = ev.topic;
+    }
+    
+    // Store specific payloads so they aren't overwritten by heartbeats/status
+    if (ev.topic.includes("/vibration")) {
+      existing.vibration_payload = ev.payload;
+    } else if (ev.topic.includes("/door/status")) {
+      existing.door_payload = ev.payload;
+    } else {
+      // Keep track of whatever else (like heartbeats)
+      existing.last_payload = ev.payload;
+    }
+
+    window.devicesMap.set(ev.client_id, existing);
+  });
+}
+
+function renderDevicePanel() {
+  const panel = document.getElementById("devicePanel");
+  const countBadge = document.getElementById("deviceCount");
+  if (!panel) return;
+  
+  if (countBadge) countBadge.textContent = `${window.devicesMap.size} devices`;
+  
+  if (window.devicesMap.size === 0) {
+    panel.innerHTML = '<div class="empty-state">No devices seen yet.</div>';
+    return;
+  }
+  
+  const now = Date.now();
+  let html = "";
+  
+  const devices = Array.from(window.devicesMap.values())
+    .sort((a, b) => a.client_id.localeCompare(b.client_id));
+    
+  devices.forEach(ev => {
+    const timeDiff = Math.max(0, Math.floor((now - new Date(ev.timestamp).getTime()) / 1000));
+    const isOnline = timeDiff < 15;
+    const badgeCls = isOnline ? "online" : "offline";
+    const badgeTxt = isOnline ? "ONLINE" : "OFFLINE";
+    
+    // Parse Payload for Visuals
+    let visualHtml = "";
+    if (ev.door_payload || ev.client_id.includes("door")) {
+      const payloadToUse = ev.door_payload || "WAITING...";
+      const isOpen = payloadToUse === "OPEN";
+      const isClosed = payloadToUse === "CLOSED";
+      let statusClass = "door-unknown";
+      let icon = "🚪";
+      
+      if (isOpen) {
+        statusClass = "door-open";
+        icon = "🔓";
+      } else if (isClosed) {
+        statusClass = "door-closed";
+        icon = "🔒";
+      }
+      
+      visualHtml = `
+        <div class="door-status ${statusClass}">
+          <span class="door-icon">${icon}</span>
+          <span class="door-text">${payloadToUse}</span>
+        </div>
+      `;
+    } else if (ev.vibration_payload || ev.client_id.includes("machine")) {
+      const payloadToUse = ev.vibration_payload;
+      if (payloadToUse) {
+        try {
+          const data = JSON.parse(payloadToUse);
+          if (data.magnitude !== undefined) {
+             const mag = parseFloat(data.magnitude).toFixed(2);
+             const pct = Math.min(100, Math.max(0, (mag / 3) * 100)); // Map 0-3g to 0-100%
+             const magClass = mag > 1.5 ? "mag-alert" : "mag-normal";
+             visualHtml = `
+              <div class="vibration-gauge">
+                <div class="vibration-values">
+                  <span>X: ${parseFloat(data.x).toFixed(2)}</span>
+                  <span>Y: ${parseFloat(data.y).toFixed(2)}</span>
+                  <span>Z: ${parseFloat(data.z).toFixed(2)}</span>
+                </div>
+                <div class="gauge-wrap">
+                  <div class="gauge-fill ${magClass}" style="width: ${pct}%"></div>
+                  <div class="gauge-threshold" style="left: 50%"></div>
+                </div>
+                <div class="gauge-label">Magnitude: <strong>${mag} g</strong></div>
+              </div>
+             `;
+          } else {
+             visualHtml = `<div class="device-payload">${formatPayload(payloadToUse).html}</div>`;
+          }
+        } catch (e) {
+          visualHtml = `<div class="device-payload">${formatPayload(payloadToUse).html}</div>`;
+        }
+      } else {
+        visualHtml = `<div class="device-payload">${formatPayload(ev.last_payload).html}</div>`;
+      }
+    } else {
+       visualHtml = `<div class="device-payload">${formatPayload(ev.last_payload).html}</div>`;
+    }
+    
+    html += `
+      <div class="device-card">
+        <div class="device-header">
+          <span class="device-title" title="${ev.client_id}">${ev.client_id}</span>
+          <span class="device-badge ${badgeCls}">${badgeTxt}</span>
+        </div>
+        <div class="device-meta">
+          <div class="device-meta-row">
+            <span>Last seen:</span>
+            <span class="device-meta-val">${timeDiff}s ago</span>
+          </div>
+          <div class="device-meta-row">
+            <span>Topic:</span>
+            <span class="device-meta-val" title="${ev.topic}">${ev.topic}</span>
+          </div>
+        </div>
+        ${visualHtml}
+      </div>
+    `;
+  });
+  
+  panel.innerHTML = html;
+}
+
 // ── Flash effect for new rows ─────────────────────────────────
 function flashElement(el) {
   el.classList.add("flash-new");
@@ -88,7 +315,6 @@ function renderStats(stats) {
   if (!stats) return;
   latestStats = stats;
 
-  // Animate number changes
   animateNumber(totalEventsEl, stats.total_events ?? 0);
   animateNumber(totalAlertsEl, stats.total_alerts ?? 0);
 
@@ -171,24 +397,31 @@ function renderAlerts(alerts) {
 // ── Render Events Table ───────────────────────────────────────
 function renderEvents(events) {
   eventsBadgeEl.textContent = `${events.length} events`;
+  
+  window.allEventsMap.clear();
+  updateDevices(events);
+  renderDevicePanel();
+  
   if (!events.length) {
-    eventsTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No events yet — run the simulator!</td></tr>`;
+    eventsTableBody.innerHTML = `<tr><td colspan="9" class="empty-state">No events yet — run the simulator!</td></tr>`;
     return;
   }
 
   eventsTableBody.innerHTML = events.map(ev => {
+    const evtId = ev.raw_event_id ? String(ev.raw_event_id) : String(ev.timestamp) + (ev.client_id || 'un');
+    window.allEventsMap.set(evtId, ev);
+    
     const isAttack   = ev.is_attack ? "is-attack" : "";
     const predType   = ev.predicted_attack_type ?? "normal";
     const sevClass   = badgeClass(ev.severity);
     const conf       = ev.confidence != null ? Math.round(ev.confidence * 100) + "%" : "—";
     return `
-      <tr class="${isAttack}">
+      <tr class="${isAttack}" data-id="${evtId}">
         <td>${fmtTime(ev.timestamp)}</td>
-        <td class="col-ip">${ev.src_ip}</td>
-        <td>${ev.action}</td>
+        <td class="col-client" title="${ev.client_id}">${ev.client_id}</td>
         <td class="col-topic" title="${ev.topic}">${ev.topic}</td>
+        <td class="payload-preview" title="${String(ev.payload).replace(/"/g, '&quot;')}"><code>${getPayloadPreview(ev.payload)}</code></td>
         <td>${ev.message_rate}</td>
-        <td>${ev.topic_count}</td>
         <td>${ev.failed_auth_count}</td>
         <td class="col-pred"><span class="badge ${sevClass}">${predType}</span></td>
         <td><span class="badge ${sevClass}">${ev.severity ?? "low"}</span></td>
@@ -199,24 +432,29 @@ function renderEvents(events) {
 
 // ── Prepend a single new event row with animation ─────────────
 function prependEventRow(ev) {
+  const evtId = ev.raw_event_id ? String(ev.raw_event_id) : String(ev.timestamp) + (ev.client_id || 'un');
+  window.allEventsMap.set(evtId, ev);
+  
+  updateDevices([ev]);
+  renderDevicePanel();
+
   const isAttack   = ev.is_attack ? "is-attack" : "";
   const predType   = ev.predicted_attack_type ?? "normal";
   const sevClass   = badgeClass(ev.severity);
   const conf       = ev.confidence != null ? Math.round(ev.confidence * 100) + "%" : "—";
 
-  // Remove "no events" placeholder if present
   const empty = eventsTableBody.querySelector(".empty-state");
   if (empty) empty.closest("tr").remove();
 
   const tr = document.createElement("tr");
   tr.className = `${isAttack} row-new`;
+  tr.setAttribute("data-id", evtId);
   tr.innerHTML = `
     <td>${fmtTime(ev.timestamp)}</td>
-    <td class="col-ip">${ev.src_ip}</td>
-    <td>${ev.action}</td>
+    <td class="col-client" title="${ev.client_id}">${ev.client_id}</td>
     <td class="col-topic" title="${ev.topic}">${ev.topic}</td>
+    <td class="payload-preview" title="${String(ev.payload).replace(/"/g, '&quot;')}"><code>${getPayloadPreview(ev.payload)}</code></td>
     <td>${ev.message_rate}</td>
-    <td>${ev.topic_count}</td>
     <td>${ev.failed_auth_count}</td>
     <td class="col-pred"><span class="badge ${sevClass}">${predType}</span></td>
     <td><span class="badge ${sevClass}">${ev.severity ?? "low"}</span></td>
@@ -225,12 +463,12 @@ function prependEventRow(ev) {
   eventsTableBody.prepend(tr);
   flashElement(tr);
 
-  // Keep table size bounded
   while (eventsTableBody.children.length > MAX_EVENTS) {
+    const lastId = eventsTableBody.lastElementChild.getAttribute("data-id");
+    if (lastId) window.allEventsMap.delete(lastId);
     eventsTableBody.lastChild.remove();
   }
 
-  // Update badge
   eventsBadgeEl.textContent = `${eventsTableBody.children.length} events`;
 }
 
@@ -253,14 +491,12 @@ function prependAlert(ev) {
       <span class="conf-text">${Math.round(ev.confidence * 100)}%</span>
     </div>`;
 
-  // Remove empty state
   const empty = alertsListEl.querySelector(".empty-state");
   if (empty) empty.remove();
 
   alertsListEl.prepend(alertDiv);
   flashElement(alertDiv);
 
-  // Keep bounded
   while (alertsListEl.children.length > 20) {
     alertsListEl.lastChild.remove();
   }
@@ -303,7 +539,6 @@ function connectSSE() {
       const data = JSON.parse(e.data);
       const ev   = data.event;
 
-      // Instant UI updates
       prependEventRow(ev);
       prependAlert(ev);
       renderStats(data.stats);
@@ -320,7 +555,6 @@ function connectSSE() {
     sseConnected = true;
     setLiveStatus(true);
 
-    // Stop polling when SSE is active
     if (pollingTimer) {
       clearInterval(pollingTimer);
       pollingTimer = null;
@@ -333,22 +567,16 @@ function connectSSE() {
     setLiveStatus(false);
     evtSource.close();
 
-    // Fall back to polling
     if (!pollingTimer) {
       pollingTimer = setInterval(fullRefresh, 3000);
     }
 
-    // Retry SSE after 5 seconds
     setTimeout(connectSSE, 5000);
   };
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────
-// 1. Do an immediate full refresh to populate the UI
 fullRefresh();
-
-// 2. Start SSE for live updates
 connectSSE();
-
-// 3. Start polling as initial fallback (will be stopped once SSE connects)
 pollingTimer = setInterval(fullRefresh, 5000);
+setInterval(renderDevicePanel, 1000);

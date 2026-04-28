@@ -59,7 +59,6 @@ class PredictionResult(BaseModel):
     severity: SeverityType
     reason: str
     rule_label: AttackType
-    ml_label: Optional[AttackType] = None
 
 
 class IngestResponse(BaseModel):
@@ -75,6 +74,7 @@ class EventRecord(BaseModel):
     client_id: str
     action: ActionType
     topic: str
+    payload: str
     payload_size: int
     connect_rate: float
     message_rate: float
@@ -87,7 +87,6 @@ class EventRecord(BaseModel):
     severity: SeverityType
     reason: str
     rule_label: AttackType
-    ml_label: Optional[AttackType] = None
 
 
 class AlertMessage(BaseModel):

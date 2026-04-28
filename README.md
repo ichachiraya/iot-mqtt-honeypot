@@ -1,184 +1,81 @@
-# MQTT Honeypot with Rule-Based + ML Detection
+# MQTT Honeypot & IoT Attack Monitor
 
-This is a starter project that follows the original plan:
-- **Backend:** FastAPI + SQLite
-- **ML:** scikit-learn RandomForest
-- **Dashboard:** plain HTML/CSS/JS
-- **Simulator:** sends synthetic MQTT-like events to backend
-- **M5Stack:** placeholder for later hardware integration
+An interactive, real-time MQTT Honeypot designed to detect, classify, and visualize IoT-based cyber attacks. This system acts as a decoy MQTT broker, seamlessly capturing telemetry from legitimate IoT devices (like M5Stack/Arduino sensors) while simultaneously flagging and analyzing malicious traffic from simulated attackers.
 
-## 1) Project structure
+![Dashboard Preview](dashboard/assets/preview.png) *(Note: Place a screenshot of your dashboard here)*
 
-```text
-mqtt-honeypot/
-├── backend/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── schemas.py
-│   ├── database.py
-│   ├── rules.py
-│   ├── ml_model.py
-│   └── artifacts/
-│       └── model.pkl         # generated after training
-├── simulator/
-│   ├── simulate.py
-│   ├── gen_dataset.py
-│   ├── train_model.py
-│   └── dataset.csv           # generated after dataset creation
-├── dashboard/
-│   ├── index.html
-│   ├── app.js
-│   └── style.css
-├── m5stack/
-│   └── display.ino
-├── requirements.txt
-└── README.md
-```
+## 🌟 Key Features
 
-## 2) Data flow
+- **Fake MQTT Broker:** Listens on port `1883` to capture raw MQTT traffic directly.
+- **Real-Time Attack Detection (Rule-Based):** Analyzes connection rates, payload sizes, and topic scanning behaviors to detect attacks like `flood`, `brute_force`, `topic_scan`, and `oversized_payload`.
+- **Dynamic Device Auto-Discovery:** Automatically detects normal IoT devices (e.g., Door Monitors, Vibration Sensors) and renders them in the interactive Device Panel.
+- **Live Dashboard:** Built with Server-Sent Events (SSE) to push live traffic, payload previews, and security alerts to the browser instantly without polling.
+- **Hardware Integration Ready:** Plug-and-play compatible with real Arduino/ESP32 devices out of the box.
 
-### Raw input at runtime
-The runtime input does **not** include `attack_type`.
-The backend receives raw honeypot-style events, extracts features, and then predicts attack type.
+## 🏗️ System Architecture
 
-### Training data
-`attack_type` exists only in `dataset.csv` because the model needs labels for learning.
+1. **Frontend (Dashboard):** Pure HTML/CSS/JS. Connects to the backend via SSE for live updates. Includes syntax-highlighted payload previews and visual gauges.
+2. **Backend (FastAPI):** Python-based REST API and SSE stream provider. Also hosts the internal Fake Broker on a background thread.
+3. **Database (SQLite):** Lightweight, persistent storage for raw events, feature extractions, and prediction results.
+4. **Simulator:** A Python script to generate both benign traffic and various MQTT attack vectors.
 
-### Output
-The backend produces:
-- `is_attack`
-- `predicted_attack_type`
-- `confidence`
-- `severity`
-- `reason`
+## 🚀 Quick Start
 
-## 3) Schema separation
-
-### `RawEventIn`
-Used by `/ingest` input.
-
-Example:
-```json
-{
-  "src_ip": "10.0.0.77",
-  "client_id": "scanner_1",
-  "action": "publish",
-  "topic": "/factory/line1/temp",
-  "payload": "abc123",
-  "qos": 1,
-  "username_used": "guest"
-}
-```
-
-### `FeatureEvent`
-Created by backend from recent source history.
-
-Fields:
-- `connect_rate`
-- `message_rate`
-- `topic_count`
-- `avg_payload_size`
-- `failed_auth_count`
-
-### `PredictionResult`
-Final classification output from rule-based + ML combination.
-
-## 4) Quick start
-
-### Step A: install dependencies
+### 1. Install Dependencies
+Ensure you have Python 3.9+ installed.
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step B: generate dataset
+### 2. Start the Backend Server
+Run the FastAPI backend. This automatically starts the Web Server on port `8000` and the Fake MQTT Broker on port `1883`.
 ```bash
-python simulator/gen_dataset.py
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-### Step C: train model
-```bash
-python simulator/train_model.py
+### 3. Open the Dashboard
+Navigate to the following URL in your web browser:
+```text
+http://localhost:8000/dashboard/
 ```
 
-### Step D: run backend
-```bash
-uvicorn backend.main:app --reload
-```
-Backend runs at:
-- API: `http://127.0.0.1:8000`
-- Swagger: `http://127.0.0.1:8000/docs`
+## ⚔️ Simulating Attacks
 
-### Step E: open dashboard
-Open `dashboard/index.html` directly in your browser.
+You can use the included `simulate.py` script to test the honeypot's detection capabilities. Open a **new terminal window** and run any of the following commands:
 
-### Step F: send simulated traffic
-Normal:
+**Normal Traffic:**
 ```bash
-python simulator/simulate.py normal --count 20 --delay 0.3
+python simulator/simulate.py normal --count 20 --delay 0.5
 ```
 
-Flood:
+**DDoS / Message Flood:**
 ```bash
-python simulator/simulate.py flood --count 30 --delay 0.05
+python simulator/simulate.py flood --count 50 --delay 0.05
 ```
 
-Brute force:
+**Brute Force (Failed Auth):**
 ```bash
 python simulator/simulate.py brute_force --count 15 --delay 0.1
 ```
 
-Topic scan:
+**Topic Scanning (Reconnaissance):**
 ```bash
 python simulator/simulate.py topic_scan --count 20 --delay 0.1
 ```
 
-Oversized payload:
+**Oversized Payload (Buffer Overflow Attempt):**
 ```bash
-python simulator/simulate.py oversized_payload --count 12 --delay 0.2
+python simulator/simulate.py oversized_payload --count 10 --delay 0.2
 ```
 
-## 5) API endpoints
+## 🔌 Connecting Real IoT Hardware
 
-### `POST /ingest`
-Receives a raw event, extracts features, classifies it, and stores everything in SQLite.
+To connect an ESP32, Arduino, or M5Stack to the honeypot:
+1. Connect the board to the same WiFi network as the computer running the backend.
+2. Set the `MQTT_BROKER` IP address in your `.ino` file to your computer's local IP (e.g., `192.168.1.x`).
+3. Set the MQTT Port to `1883`.
+4. Publish JSON payloads to any topic. The dashboard will automatically detect the new device and render a card for it!
 
-### `GET /events`
-Returns recent events with features + predictions.
-
-### `GET /alerts`
-Returns recent attack alerts only.
-
-### `GET /stats`
-Returns summary numbers for the dashboard.
-
-## 6) Suggested implementation order
-
-### Day 1
-- Run backend
-- Confirm SQLite file is created
-- Test `POST /ingest` from Swagger
-
-### Day 2
-- Use `simulate.py normal`
-- Check `/events`
-
-### Day 3
-- Use `simulate.py flood`
-- Check `/alerts`
-
-### Day 4
-- Tune thresholds in `backend/rules.py`
-
-### Day 5-6
-- Regenerate dataset and retrain model
-
-### Day 7+
-- Improve dashboard
-- Add charts/filters
-- Connect M5Stack later
-
-## 7) Important note
-This project is intentionally simple for a student demo.
-It is not a full MQTT broker.
-It acts like a lightweight honeypot-style event collector and classifier.
-That makes it much easier to finish while still matching the project goal.
+---
+*Developed as an Educational IoT Security Project.*
+ค

@@ -121,6 +121,7 @@ def get_events(limit: int = 50) -> list[EventRecord]:
             client_id=row["client_id"],
             action=row["action"],
             topic=row["topic"],
+            payload=row["payload"],
             payload_size=row["payload_size"],
             connect_rate=row["connect_rate"],
             message_rate=row["message_rate"],
@@ -133,7 +134,6 @@ def get_events(limit: int = 50) -> list[EventRecord]:
             severity=row["severity"],
             reason=row["reason"],
             rule_label=row["rule_label"],
-            ml_label=row["ml_label"],
         )
         for row in rows
     ]

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MQTT Honeypot — Attack Monitor</title>
-    <meta name="description" content="Real-time MQTT honeypot attack monitoring dashboard powered by ML classification." />
+    <meta name="description" content="Real-time MQTT honeypot attack monitoring dashboard with device-aware IoT visualization." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -40,6 +40,15 @@
           <div class="last-update" id="lastUpdate">—</div>
         </div>
       </header>
+
+      <!-- Device Panel -->
+      <section class="device-panel-section">
+        <div class="card-header" style="margin-bottom: 16px;">
+          <h2 style="font-size: 1.1rem; font-weight: 600;">🔌 Connected Devices</h2>
+          <span class="card-badge" id="deviceCount">0 devices</span>
+        </div>
+        <div class="device-panel" id="devicePanel"></div>
+      </section>
 
       <!-- Stats Cards -->
       <section class="stats-grid">
@@ -103,13 +112,12 @@
             <thead>
               <tr>
                 <th>Time</th>
-                <th>Source IP</th>
-                <th>Action</th>
+                <th>Client</th>
                 <th>Topic</th>
+                <th>Payload</th>
                 <th>Msg Rate</th>
-                <th>Topics</th>
                 <th>Auth Fails</th>
-                <th>ML Prediction</th>
+                <th>Classification</th>
                 <th>Severity</th>
                 <th>Confidence</th>
               </tr>
@@ -122,6 +130,23 @@
       <footer class="page-footer">
         MQTT Honeypot System · Rule-based Detection · Backend: FastAPI · Live SSE Push
       </footer>
+    </div>
+
+    <!-- Payload Viewer Modal -->
+    <div class="modal-overlay" id="payloadModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>📋 Event Details</h2>
+          <button class="modal-close" id="modalCloseBtn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-meta" id="modalMeta"></div>
+          <div class="modal-payload-section">
+            <h3>Payload</h3>
+            <pre><code id="modalPayloadContent"></code></pre>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script src="app.js"></script>
