@@ -1,10 +1,42 @@
 from __future__ import annotations
 
+import re
+
 from backend.schemas import FeatureEvent, RuleDecision
 
+# ── Whitelisted topic prefixes ────────────────────────────────────────────────
+# Known factory / IoT device topics that send periodic telemetry.
+# Traffic matching these prefixes is exempt from flood and topic-scan rules
+# because legitimate devices (M5Stack vibration monitor, door sensor, etc.)
+# can easily exceed rate thresholds with normal periodic publishing.
+WHITELISTED_TOPIC_PREFIXES = (
+    "/factory/",
+)
 
-def classify_with_rules(features: FeatureEvent) -> RuleDecision:
+
+def _is_whitelisted_topic(topic: str) -> bool:
+    """Return True if the topic belongs to a known factory device."""
+    return any(topic.startswith(prefix) for prefix in WHITELISTED_TOPIC_PREFIXES)
+
+
+def classify_with_rules(
+    features: FeatureEvent,
+    topic: str = "/",
+) -> RuleDecision:
+    """
+    Rule-based classifier.
+
+    Parameters
+    ----------
+    features : FeatureEvent
+        Aggregated traffic features for the source.
+    topic : str
+        The topic of the *current* event — used for whitelist checks.
+    """
+    whitelisted = _is_whitelisted_topic(topic)
+
     # ── Brute Force: many auth failures from same IP (any client_id) ──────────
+    # (never whitelisted — auth failures are always suspicious)
     if features.failed_auth_count >= 3:
         return RuleDecision(
             is_attack=True,
@@ -14,7 +46,7 @@ def classify_with_rules(features: FeatureEvent) -> RuleDecision:
         )
 
     # ── Flood: high message or connection rate from one client ─────────────────
-    if features.message_rate >= 25 or features.connect_rate >= 12:
+    if not whitelisted and (features.message_rate >= 25 or features.connect_rate >= 12):
         return RuleDecision(
             is_attack=True,
             predicted_attack_type="flood",
@@ -23,7 +55,7 @@ def classify_with_rules(features: FeatureEvent) -> RuleDecision:
         )
 
     # ── Topic Scan: single client touching many different topics ───────────────
-    if features.topic_count >= 6:
+    if not whitelisted and features.topic_count >= 6:
         return RuleDecision(
             is_attack=True,
             predicted_attack_type="topic_scan",

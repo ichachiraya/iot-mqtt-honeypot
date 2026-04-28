@@ -4,18 +4,23 @@ backend/services.py
 Central processing pipeline — shared by both the HTTP /ingest endpoint
 and the fake MQTT broker. Any new transport (MQTT, WebSocket, etc.)
 just calls process_raw_event() and gets the same analysis.
+
+After processing, broadcasts the result via SSE so the dashboard
+receives live updates without polling.
 """
 from __future__ import annotations
 
 from datetime import datetime
 
+from .event_bus import broadcast
+
 from .database import (
     get_auth_fail_count_by_ip,
     get_recent_source_window,
+    get_stats,
     insert_prediction,
     insert_raw_event,
 )
-from .ml_model import ModelService
 from .rules import classify_with_rules
 from .schemas import (
     FeatureEvent,
@@ -24,9 +29,6 @@ from .schemas import (
     RawEventIn,
     RawEventStored,
 )
-
-# Shared ML model singleton — loaded once, used by both HTTP and MQTT paths.
-model_service = ModelService()
 
 SUSPICIOUS_USERNAMES = {"admin", "root", "test", "mqtt", "guest"}
 
@@ -94,48 +96,6 @@ def extract_features(raw_event: RawEventStored) -> FeatureEvent:
     )
 
 
-# ── Step 3: Combine rule + ML decisions ───────────────────────────────────────
-
-def combine_decisions(rule_result, ml_result) -> PredictionResult:
-    if ml_result is None:
-        confidence = 0.9 if rule_result.is_attack else 0.7
-        return PredictionResult(
-            is_attack=rule_result.is_attack,
-            predicted_attack_type=rule_result.predicted_attack_type,
-            confidence=confidence,
-            severity=rule_result.severity,
-            reason=rule_result.reason,
-            rule_label=rule_result.predicted_attack_type,
-            ml_label=None,
-        )
-
-    if rule_result.is_attack:
-        return PredictionResult(
-            is_attack=True,
-            predicted_attack_type=rule_result.predicted_attack_type,
-            confidence=round(max(float(ml_result.confidence), 0.85), 2),
-            severity=rule_result.severity,
-            reason=f"{rule_result.reason} ML also predicted {ml_result.predicted_attack_type}.",
-            rule_label=rule_result.predicted_attack_type,
-            ml_label=ml_result.predicted_attack_type,
-        )
-
-    is_attack = ml_result.predicted_attack_type != "normal"
-    return PredictionResult(
-        is_attack=is_attack,
-        predicted_attack_type=ml_result.predicted_attack_type,
-        confidence=float(ml_result.confidence),
-        severity="medium" if is_attack else "low",
-        reason=(
-            f"ML predicted {ml_result.predicted_attack_type} even though rules stayed normal."
-            if is_attack
-            else rule_result.reason
-        ),
-        rule_label=rule_result.predicted_attack_type,
-        ml_label=ml_result.predicted_attack_type,
-    )
-
-
 # ── Central pipeline ──────────────────────────────────────────────────────────
 
 def process_raw_event(payload: RawEventIn) -> IngestResponse:
@@ -146,12 +106,50 @@ def process_raw_event(payload: RawEventIn) -> IngestResponse:
     """
     raw_event   = normalize_raw_event(payload)
     features    = extract_features(raw_event)
-    rule_result = classify_with_rules(features)
-    ml_result   = model_service.predict(features)
-    prediction  = combine_decisions(rule_result, ml_result)
+    rule_result = classify_with_rules(features, topic=raw_event.topic)
+
+    confidence = 0.9 if rule_result.is_attack else 0.7
+    prediction = PredictionResult(
+        is_attack=rule_result.is_attack,
+        predicted_attack_type=rule_result.predicted_attack_type,
+        confidence=confidence,
+        severity=rule_result.severity,
+        reason=rule_result.reason,
+        rule_label=rule_result.predicted_attack_type,
+        ml_label=None,
+    )
 
     raw_event_id = insert_raw_event(raw_event, features)
     insert_prediction(raw_event_id, prediction)
+
+    # ── Broadcast to SSE clients ──────────────────────────────────────────
+    try:
+        broadcast("new_event", {
+            "event": {
+                "raw_event_id": raw_event_id,
+                "timestamp": raw_event.timestamp.isoformat(),
+                "src_ip": raw_event.src_ip,
+                "client_id": raw_event.client_id,
+                "action": raw_event.action,
+                "topic": raw_event.topic,
+                "payload_size": raw_event.payload_size,
+                "connect_rate": features.connect_rate,
+                "message_rate": features.message_rate,
+                "topic_count": features.topic_count,
+                "avg_payload_size": features.avg_payload_size,
+                "failed_auth_count": features.failed_auth_count,
+                "is_attack": prediction.is_attack,
+                "predicted_attack_type": prediction.predicted_attack_type,
+                "confidence": prediction.confidence,
+                "severity": prediction.severity,
+                "reason": prediction.reason,
+                "rule_label": prediction.rule_label,
+                "ml_label": prediction.ml_label,
+            },
+            "stats": get_stats(),
+        })
+    except Exception:
+        pass  # never let SSE broadcast break the pipeline
 
     return IngestResponse(
         raw_event_id=raw_event_id,

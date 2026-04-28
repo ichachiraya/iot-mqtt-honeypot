@@ -457,6 +457,109 @@ td.col-pred   { font-weight: 600; }
   padding-top: 20px;
 }
 
+/* ── Header Status Row ── */
+.header-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── Live Indicator ── */
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border);
+  transition: all 0.3s ease;
+}
+
+.live-indicator.live {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--ok);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+}
+
+.live-indicator.polling {
+  background: rgba(245, 158, 11, 0.10);
+  color: var(--warn);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.live-indicator.live .live-dot {
+  animation: livePulse 1.5s ease infinite;
+  box-shadow: 0 0 6px currentColor;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ── New Row Flash ── */
+.row-new td {
+  animation: rowFlash 1.2s ease;
+}
+
+@keyframes rowFlash {
+  0%   { background: rgba(59, 130, 246, 0.25); }
+  100% { background: transparent; }
+}
+
+tr.is-attack.row-new td {
+  animation: rowFlashDanger 1.2s ease;
+}
+
+@keyframes rowFlashDanger {
+  0%   { background: rgba(244, 63, 94, 0.3); }
+  100% { background: rgba(244, 63, 94, 0.03); }
+}
+
+/* ── Alert entrance ── */
+.alert-new {
+  animation: alertSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes alertSlideIn {
+  0%   { opacity: 0; transform: translateY(-12px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* flash-new utility */
+.flash-new {
+  position: relative;
+}
+
+.flash-new::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  opacity: 0;
+  animation: flashBorder 1.2s ease;
+  pointer-events: none;
+}
+
+@keyframes flashBorder {
+  0%   { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
 /* ── Responsive ── */
 @media (max-width: 960px) {
   .stats-grid   { grid-template-columns: 1fr 1fr; }

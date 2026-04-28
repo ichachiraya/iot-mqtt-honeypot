@@ -52,11 +52,6 @@ class RuleDecision(BaseModel):
     reason: str
 
 
-class MlDecision(BaseModel):
-    predicted_attack_type: AttackType
-    confidence: float
-
-
 class PredictionResult(BaseModel):
     is_attack: bool
     predicted_attack_type: AttackType

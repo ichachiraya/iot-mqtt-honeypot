@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import StreamingResponse
 
 from .database import get_stats, init_db, list_recent_alerts, list_recent_events
 from .schemas import (
@@ -24,6 +25,7 @@ from .schemas import (
     StatsResponse,
 )
 from .services import process_raw_event
+from .event_bus import subscribe, unsubscribe
 
 app = FastAPI(title="MQTT Honeypot Backend", version="1.0.0")
 
@@ -44,10 +46,6 @@ app.add_middleware(
 async def on_startup() -> None:
     init_db()
 
-    # Reload ML model via the shared singleton in services.
-    from .services import model_service
-    model_service.reload()
-
     # Start fake MQTT broker on port 1883 as a background task.
     try:
         from broker.fake_broker import start_mqtt_broker
@@ -59,6 +57,48 @@ async def on_startup() -> None:
 @app.get("/")
 def root() -> dict:
     return {"message": "MQTT Honeypot backend is running."}
+
+
+# ── SSE Stream ────────────────────────────────────────────────────────────────
+
+async def _event_generator(q):
+    """Yield SSE messages from the client's queue."""
+    try:
+        while True:
+            msg = await asyncio.wait_for(q.get(), timeout=30)
+            yield msg
+    except asyncio.TimeoutError:
+        # Send keepalive comment to prevent proxy/browser timeout
+        yield ": keepalive\n\n"
+    except asyncio.CancelledError:
+        return
+
+
+async def _sse_stream(q):
+    """Infinite SSE loop with keepalive."""
+    try:
+        while True:
+            async for chunk in _event_generator(q):
+                yield chunk
+    except asyncio.CancelledError:
+        return
+    finally:
+        unsubscribe(q)
+
+
+@app.get("/stream")
+async def stream_events():
+    """SSE endpoint — dashboard connects here for live push updates."""
+    q = subscribe()
+    return StreamingResponse(
+        _sse_stream(q),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ── Ingest ────────────────────────────────────────────────────────────────────

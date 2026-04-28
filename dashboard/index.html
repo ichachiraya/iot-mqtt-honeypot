@@ -24,13 +24,18 @@
           </div>
           <div>
             <h1>Attack Monitoring Dashboard</h1>
-            <p class="subtitle">Real-time ML threat detection · Auto-refresh every 3s</p>
+            <p class="subtitle">Real-time threat detection · SSE live push</p>
           </div>
         </div>
         <div class="header-right">
-          <div class="status-pill" id="statusPill">
-            <span class="pulse-dot" id="pulseDot"></span>
-            <span id="statusText">Connecting…</span>
+          <div class="header-status-row">
+            <div class="live-indicator polling" id="liveIndicator">
+              <span class="live-dot"></span>POLLING
+            </div>
+            <div class="status-pill" id="statusPill">
+              <span class="pulse-dot" id="pulseDot"></span>
+              <span id="statusText">Connecting…</span>
+            </div>
           </div>
           <div class="last-update" id="lastUpdate">—</div>
         </div>
@@ -115,7 +120,7 @@
       </section>
 
       <footer class="page-footer">
-        MQTT Honeypot System · ML Model: RandomForest · Backend: FastAPI
+        MQTT Honeypot System · Rule-based Detection · Backend: FastAPI · Live SSE Push
       </footer>
     </div>
 
